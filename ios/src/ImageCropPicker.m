@@ -283,7 +283,6 @@ RCT_EXPORT_METHOD(openPicker:(NSDictionary *)options
     
     [self setConfiguration:options resolver:resolve rejecter:reject];
     self.currentSelectionMode = PICKER;
-    
     [PHPhotoLibrary requestAuthorization:^(PHAuthorizationStatus status) {
         if (status != PHAuthorizationStatusAuthorized) {
             self.reject(ERROR_NO_LIBRARY_PERMISSION_KEY, ERROR_NO_LIBRARY_PERMISSION_MSG, nil);
@@ -807,7 +806,6 @@ RCT_EXPORT_METHOD(openCropper:(NSDictionary *)options
     
     UIImage *resizedImage = [croppedImage resizedImageToFitInSize:desiredImageSize scaleIfSmaller:YES];
     ImageResult *imageResult = [self.compression compressImage:resizedImage withOptions:self.options];
-    
     NSString *filePath = [self persistFile:imageResult.data];
     if (filePath == nil) {
         [self dismissCropper:controller selectionDone:YES completion:[self waitAnimationEnd:^{
@@ -846,8 +844,15 @@ RCT_EXPORT_METHOD(openCropper:(NSDictionary *)options
     // create temp file
     NSString *tmpDirFullPath = [self getTmpDirectory];
     NSString *filePath = [tmpDirFullPath stringByAppendingString:[[NSUUID UUID] UUIDString]];
-    filePath = [filePath stringByAppendingString:@".jpg"];
-    
+  
+    NSString *mimeType = [self determineMimeTypeFromImageData:data];
+    if ([mimeType isEqualToString:@"image/png"]) {
+        filePath = [filePath stringByAppendingString:@".png"];
+    } else {
+        filePath = [filePath stringByAppendingString:@".jpg"];
+    }
+   
+    NSLog(@"file mimeType %@", mimeType);
     // save cropped file
     BOOL status = [data writeToFile:filePath atomically:YES];
     if (!status) {

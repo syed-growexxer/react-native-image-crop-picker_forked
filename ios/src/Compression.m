@@ -24,13 +24,19 @@
     
     if (@available(iOS 9.0, *)) {
         [dic addEntriesFromDictionary:@{@"3840x2160": AVAssetExportPreset3840x2160}];
-    } else {
-        // Fallback on earlier versions
     }
     
     self.exportPresets = dic;
     
     return self;
+}
+
+- (NSString *)determineMimeTypeFromImage:(UIImage *)image {
+    NSData *pngData = UIImagePNGRepresentation(image);
+    if (pngData) {
+        return @"image/png";
+    }
+    return @"image/jpeg";
 }
 
 - (ImageResult*) compressImageDimensions:(UIImage*)image
@@ -40,20 +46,20 @@
     
     CGFloat oldWidth = image.size.width;
     CGFloat oldHeight = image.size.height;
-
-    CGFloat widthScale = maxWidth / oldWidth;
-    CGFloat heightScale = maxHeight / oldHeight;
-    CGFloat scaleFactor = MIN(widthScale, heightScale);
-
-    CGFloat newWidth = oldWidth * scaleFactor;
-    CGFloat newHeight = oldHeight * scaleFactor;
     
+    int newWidth = 0;
+    int newHeight = 0;
+    
+    if (maxWidth < maxHeight) {
+        newWidth = maxWidth;
+        newHeight = (oldHeight / oldWidth) * newWidth;
+    } else {
+        newHeight = maxHeight;
+        newWidth = (oldWidth / oldHeight) * newHeight;
+    }
     CGSize newSize = CGSizeMake(newWidth, newHeight);
-
-    UIGraphicsImageRendererFormat *format = [[UIGraphicsImageRendererFormat alloc] init];
-    format.scale = image.scale;
-
-    UIGraphicsImageRenderer *renderer = [[UIGraphicsImageRenderer alloc] initWithSize:newSize format:format];
+    
+    UIGraphicsImageRenderer *renderer = [[UIGraphicsImageRenderer alloc] initWithSize:newSize];
     UIImage *resizedImage = [renderer imageWithActions:^(UIGraphicsImageRendererContext * _Nonnull rendererContext) {
         [image drawInRect:CGRectMake(0, 0, newSize.width, newSize.height)];
     }];
@@ -61,7 +67,6 @@
     result.width = @(newWidth);
     result.height = @(newHeight);
     result.image = resizedImage;
-    
     return result;
 }
 
@@ -72,18 +77,17 @@
     result.width = @(image.size.width);
     result.height = @(image.size.height);
     result.image = image;
-    result.mime = @"image/jpeg";
+    result.mime = [self determineMimeTypeFromImage:image];
     
-    NSNumber *compressImageMaxWidth = [options valueForKey:@"compressImageMaxWidth"];
-    NSNumber *compressImageMaxHeight = [options valueForKey:@"compressImageMaxHeight"];
+    NSNumber *compressImageMaxWidth = options[@"compressImageMaxWidth"];
+    NSNumber *compressImageMaxHeight = options[@"compressImageMaxHeight"];
     
-    // determine if it is necessary to resize image
-    BOOL shouldResizeWidth = (compressImageMaxWidth != nil && [compressImageMaxWidth floatValue] < image.size.width);
-    BOOL shouldResizeHeight = (compressImageMaxHeight != nil && [compressImageMaxHeight floatValue] < image.size.height);
+    BOOL shouldResizeWidth = (compressImageMaxWidth && [compressImageMaxWidth floatValue] < image.size.width);
+    BOOL shouldResizeHeight = (compressImageMaxHeight && [compressImageMaxHeight floatValue] < image.size.height);
     
     if (shouldResizeWidth || shouldResizeHeight) {
-        CGFloat maxWidth = compressImageMaxWidth != nil ? [compressImageMaxWidth floatValue] : image.size.width;
-        CGFloat maxHeight = compressImageMaxHeight != nil ? [compressImageMaxHeight floatValue] : image.size.height;
+        CGFloat maxWidth = compressImageMaxWidth ? [compressImageMaxWidth floatValue] : image.size.width;
+        CGFloat maxHeight = compressImageMaxHeight ? [compressImageMaxHeight floatValue] : image.size.height;
         
         [self compressImageDimensions:image
                 compressImageMaxWidth:maxWidth
@@ -91,14 +95,13 @@
                            intoResult:result];
     }
     
-    // parse desired image quality
-    NSNumber *compressQuality = [options valueForKey:@"compressImageQuality"];
-    if (compressQuality == nil) {
-        compressQuality = [NSNumber numberWithFloat:0.8];
-    }
+    NSNumber *compressQuality = options[@"compressImageQuality"] ?: @(0.8);
     
-    // convert image to jpeg representation
-    result.data = UIImageJPEGRepresentation(result.image, [compressQuality floatValue]);
+    if ([result.mime isEqualToString:@"image/png"]) {
+        result.data = UIImagePNGRepresentation(result.image);
+    } else {
+        result.data = UIImageJPEGRepresentation(result.image, [compressQuality floatValue]);
+    }
     
     return result;
 }
@@ -108,15 +111,8 @@
           withOptions:(NSDictionary*)options
               handler:(void (^)(AVAssetExportSession*))handler {
     
-    NSString *presetKey = [options valueForKey:@"compressVideoPreset"];
-    if (presetKey == nil) {
-        presetKey = @"MediumQuality";
-    }
-    
-    NSString *preset = [self.exportPresets valueForKey:presetKey];
-    if (preset == nil) {
-        preset = AVAssetExportPresetMediumQuality;
-    }
+    NSString *presetKey = options[@"compressVideoPreset"] ?: @"MediumQuality";
+    NSString *preset = self.exportPresets[presetKey] ?: AVAssetExportPresetMediumQuality;
     
     [[NSFileManager defaultManager] removeItemAtURL:outputURL error:nil];
     AVURLAsset *asset = [AVURLAsset URLAssetWithURL:inputURL options:nil];
@@ -125,7 +121,7 @@
     exportSession.outputURL = outputURL;
     exportSession.outputFileType = AVFileTypeMPEG4;
     
-    [exportSession exportAsynchronouslyWithCompletionHandler:^(void) {
+    [exportSession exportAsynchronouslyWithCompletionHandler:^{
         handler(exportSession);
     }];
 }
