@@ -78,6 +78,12 @@
     result.height = @(image.size.height);
     result.image = image;
     result.mime = [self determineMimeTypeFromImage:image];
+    if ([result.mime isEqualToString:@"image/png"]) {
+    } else {
+     result.mime = @"image/jpeg";
+    }
+   
+
     
     NSNumber *compressImageMaxWidth = options[@"compressImageMaxWidth"];
     NSNumber *compressImageMaxHeight = options[@"compressImageMaxHeight"];
